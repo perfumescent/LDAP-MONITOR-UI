@@ -1,163 +1,150 @@
 <template>
+
   <div>
-    <!-- LDAP Server Address Input and Confirm Button -->
-    <el-row :gutter="20">
-      <el-col :span="8">
-        <el-input v-model="ldapServerAddress" placeholder="Enter LDAP Server Address"></el-input>
-      </el-col>
-      <el-col :span="8">
-        <!-- Search Input for LDAP Objects -->
-        <el-input v-model="filterText" placeholder="Search LDAP Objects"></el-input>
-      </el-col>
-      <el-col :span="8">
-        <el-button type="primary" @click="confirmServerAddress">确定</el-button>
-      </el-col>
-    </el-row>
+    <el-button @click="showAddModal = true" type="primary">新增配置</el-button>
+    <el-dialog title="新增LDAP配置" v-model="showAddModal" width="30%">
+      <el-form :model="newConfig" label-width="120px" label-position="top">
+        <el-form-item label="服务器名称">
+          <el-input v-model="newConfig.serverName"/>
+        </el-form-item>
+        <el-form-item label="服务器URL">
+          <el-input v-model="newConfig.serverUrl"/>
+        </el-form-item>
+        <el-form-item label="Base DN">
+          <el-input v-model="newConfig.baseDn"/>
+        </el-form-item>
+        <el-form-item label="用户DN">
+          <el-input v-model="newConfig.userDn"/>
+        </el-form-item>
+        <el-form-item label="密码">
+          <el-input type="password" v-model="newConfig.password"/>
+        </el-form-item>
+        <el-form-item label="描述">
+          <el-input type="textarea" v-model="newConfig.description"/>
+        </el-form-item>
+      </el-form>
+      <span slot="footer" class="dialog-footer">
+    <el-button @click="showAddModal = false">取消</el-button>
+    <el-button type="primary" @click="addConfig">保存</el-button>
+  </span>
+    </el-dialog>
 
 
-    <el-container>
-      <!-- Left Side: LDAP Objects Tree -->
-      <el-aside width="30%">
-        <el-tree
-            class="tree-wrapper"
-            ref="treeRef"
-            :data="ldapObjects"
-            :props="defaultProps"
-            :load="loadNode"
-            lazy
-            @node-click="showDetails"
-            :highlight-current="true"
-        >
-          <template #default="{ node }">
-            <span>{{ node.data.nodeName }}</span>
-          </template>
-        </el-tree>
-      </el-aside>
+    <el-table :data="configs" style="width: 100%">
+      <el-table-column prop="serverName" label="服务器名称"></el-table-column>
+      <el-table-column prop="serverUrl" label="服务器URL"></el-table-column>
+      <el-table-column prop="baseDn" label="Base DN"></el-table-column>
+      <el-table-column prop="userDn" label="用户DN"></el-table-column>
+      <el-table-column prop="password" label="密码"></el-table-column>
+      <el-table-column prop="description" label="描述"></el-table-column>
+      <el-table-column label="操作">
+        <template #default="{ row }">
+          <el-button @click="setCurrentConfig(row)">编辑</el-button>
+          <el-button @click="deleteConfig(row.id)">删除</el-button>
+        </template>
+      </el-table-column>
+    </el-table>
 
-
-      <!-- Right Side: LDAP Object Details Table -->
-      <el-main>
-        <!-- Breadcrumb for Navigation -->
-        <el-breadcrumb>
-          <el-breadcrumb-item v-for="item in breadcrumbItems" :key="item.label">{{ item.label }}</el-breadcrumb-item>
-        </el-breadcrumb>
-        <el-table :data="tableData" style="width: 100%">
-          <el-table-column prop="attributeKey" label="Attribute"></el-table-column>
-          <el-table-column prop="attributeValue" label="Value"></el-table-column>
-        </el-table>
-      </el-main>
-    </el-container>
+    <el-dialog
+        title="当前配置详情"
+        v-model="dialogVisible"
+        width="50%">
+      <el-form :model="currentConfig">
+        <el-form-item label="服务器名称">
+          <el-input v-model="currentConfig.serverName"/>
+        </el-form-item>
+        <el-form-item label="服务器URL">
+          <el-input v-model="currentConfig.serverUrl"/>
+        </el-form-item>
+        <el-form-item label="Base DN">
+          <el-input v-model="currentConfig.baseDn"/>
+        </el-form-item>
+        <el-form-item label="用户DN">
+          <el-input v-model="currentConfig.userDn"/>
+        </el-form-item>
+        <el-form-item label="密码">
+          <el-input v-model="currentConfig.password"/>
+        </el-form-item>
+        <el-form-item label="描述">
+          <el-input v-model="currentConfig.description"/>
+        </el-form-item>
+        <el-form-item>
+          <el-button @click="updateConfig">更新</el-button>
+        </el-form-item>
+      </el-form>
+    </el-dialog>
   </div>
 </template>
 
-<script lang="ts">
-import {Ref, ref, watch, defineComponent} from 'vue';
+<script setup lang="ts">
+import {ref} from 'vue';
 import axios from 'axios';
-import {ElTree} from "element-plus";
-import type Node from 'element-plus/es/components/tree/src/model/node'
 
-interface LdapNode {
-  nodeName: string;
-  nodeCode: string;
-  children?: LdapNode[];
-  attributes: Record<string, string>;
+interface LdapServerConfig {
+  id: number;
+  serverName: string;
+  serverUrl: string;
+  baseDn: string;
+  userDn: string;
+  password: string;
+  description: string;
 }
 
-export default defineComponent({
-  setup() {
-    const ldapServerAddress: Ref<string> = ref('ldap://10.32.116.82:389');
-    const searchQuery: Ref<string> = ref('');
-    const ldapObjects: Ref<LdapNode[]> = ref([]);
-    const tableData: Ref<Array<{ attributeKey: string, attributeValue: string }>> = ref([]);
-    const breadcrumbItems: Ref<Array<{ label: string, value: string }>> = ref([]);
-    const treeRef = ref<InstanceType<typeof ElTree> | null>(null);
-    const filterText: Ref<string> = ref('');
-    const defaultProps = {
-      children: 'children',
-      label: 'nodeName',
-    };
-
-    const confirmServerAddress = () => {
-      if (filterText.value) {
-        search(filterText.value);
-      } else {
-        fetchChildren(null);
-      }
-    };
-    const search = async (filter: string) => {
-      axios.post('/ldap/search', {url: ldapServerAddress.value, filter: filter}).then(response => {
-        console.log(response.data);
-        ldapObjects.value = response.data;
-
-      }).catch(error => {
-        console.error("Error fetching LDAP data:", error);
-      });
-    }
-    const fetchChildren = async (node: Node | null) => {
-      axios.post('/ldap/getSubNodeList', {url: ldapServerAddress.value, nodeCode: node?.data.nodeCode}).then(response => {
-        if (node) {
-          node.data.children = response.data;
-        } else {
-          ldapObjects.value = response.data;
-        }
-      }).catch(error => {
-        console.error("Error fetching LDAP data:", error);
-      });
-    }
-
-    const showDetails = async (nodeData: LdapNode) => {
-      tableData.value = [];
-      if ((nodeData.attributes as any) === null) {
-        await axios.post('/ldap/getNode', {url: ldapServerAddress.value, nodeCode: nodeData.nodeCode}).then(response => {
-          nodeData.attributes = response.data.attributes;
-          console.log(nodeData.attributes, response.data.attributes);
-        })
-      }
-      tableData.value = Object.entries(nodeData.attributes).map(([key, value]) => ({
-            attributeKey: key,
-            attributeValue: value
-          }));
-      updateBreadcrumb(nodeData);
-    };
-
-    const updateBreadcrumb = (nodeData: LdapNode) => {
-      breadcrumbItems.value = nodeData.nodeCode.split(',').reverse().map(part => {
-        const [label, value] = part.split('=');
-        return {label: value, value};
-      });
-    };
-
-    const loadNode = (node: Node, resolve: (data: LdapNode[]) => void) => {
-      fetchChildren(node);
-      if (node.level === 0) {
-        resolve(ldapObjects.value);
-      } else {
-        resolve(node.data.children || []);
-      }
-    };
-
-    return {
-      ldapServerAddress,
-      searchQuery,
-      ldapObjects,
-      breadcrumbItems,
-      defaultProps,
-      confirmServerAddress,
-      showDetails,
-      updateBreadcrumb,
-      loadNode,
-      treeRef,
-      filterText,
-      tableData
-    };
-  }
+const configs = ref<LdapServerConfig[]>([]);
+const currentConfig = ref<LdapServerConfig | null>(null);
+const showAddModal = ref(false);
+const newConfig = ref<LdapServerConfig>({
+  id: -1,
+  serverName: '',
+  serverUrl: '',
+  baseDn: '',
+  userDn: '',
+  password: '',
+  description: ''
 });
+const dialogVisible = ref(false)
+const addConfig = async () => {
+  try {
+    await axios.post('/ldap/config/create', newConfig.value);
+    fetchConfigs();
+    showAddModal.value = false;
+  } catch (error) {
+    console.error('Failed to add config:', error);
+  }
+};
+const fetchConfigs = async () => {
+  try {
+    const response = await axios.get('/ldap/config/get');
+    configs.value = response.data;
+  } catch (error) {
+    console.error('Failed to fetch configs:', error);
+  }
+};
 
+const setCurrentConfig = (config: LdapServerConfig) => {
+  currentConfig.value = {...config};
+  dialogVisible.value = true;
+};
+
+const updateConfig = async () => {
+  if (!currentConfig.value) return;
+  try {
+    await axios.post('/ldap/config/update', currentConfig.value);
+    fetchConfigs();
+    dialogVisible.value = false;
+  } catch (error) {
+    console.error('Failed to update config:', error);
+  }
+};
+
+const deleteConfig = async (id: string) => {
+  try {
+    await axios.get(`/ldap/config/delete?id=${id}`);
+    fetchConfigs();
+  } catch (error) {
+    console.error('Failed to delete config:', error);
+  }
+};
+
+fetchConfigs();
 </script>
-
-<style>
-.tree-wrapper {
-  max-height: calc(100vh - 50px); /* Adjust this value based on your needs */
-  overflow-y: auto;
-}
-</style>
